@@ -22,8 +22,9 @@ EXECUTION_MODE = os.getenv("MCP_EXECUTION_MODE", "direct").strip().lower()
 MCP_SERVER_COMMAND = os.getenv("MCP_SERVER_COMMAND", "python")
 MCP_SERVER_SCRIPT = os.getenv("MCP_SERVER_SCRIPT", "phishing_mcp_server.py")
 DEFAULT_USER_ROLE = os.getenv("DEFAULT_USER_ROLE", "user")
+REQUEST_TIMEOUT = int(os.getenv("UI_REQUEST_TIMEOUT", "300"))
 
-# NEW: API endpoint for the LLM Router
+# API endpoint for the LLM Router
 LLM_SERVER_URL = os.getenv("LLM_SERVER_URL", "http://127.0.0.1:8001").rstrip("/")
 
 APP_TITLE = "Phishing Simulation Analytics Copilot - No LLM"
@@ -60,60 +61,60 @@ EXAMPLE_QUESTIONS = [
 
 st.markdown("""
 <style>
-/* Deepened Base Colors */
+/* Ultra-Dark Obsidian Theme */
 :root {
-    --bg-main: #03060a;
-    --bg-sidebar: #020408;
-    --bg-card: #060a12;
-    --bg-card-2: #080e1a;
-    --border: #111a28;
-    --border-soft: #0c131f;
+    --bg-main: #010204;
+    --bg-sidebar: #000000;
+    --bg-card: #04060a;
+    --bg-card-2: #05080e;
+    --border: #0a111a;
+    --border-soft: #070b12;
     --text: #a5edf7;
-    --muted: #6e84a3;
+    --muted: #5b708b;
     --accent: #2dd4bf;
-    --blue: #60a5fa;
+    --blue: #3b82f6;
     --success: #22c55e;
     --warning: #f59e0b;
     --danger: #ef4444;
 }
 
 /* App Background & Layout */
-.stApp { background: linear-gradient(135deg, #020408 0%, #03060a 40%, #050810 100%); color: var(--text); }
+.stApp { background: linear-gradient(135deg, #000000 0%, #010306 40%, #020409 100%); color: var(--text); }
 .block-container { max-width: 1360px; padding-top: 1.4rem; padding-bottom: 2rem; }
 [data-testid="stSidebar"] { background: var(--bg-sidebar); border-right: 1px solid var(--border); }
 [data-testid="stSidebar"] .stMarkdown p { color: var(--text); }
 
 /* Custom UI Components */
-.hero-card { background: rgba(6,10,18,.9); border: 1px solid var(--border); border-radius: 20px; padding: 1.15rem 1.25rem; margin-bottom: 1rem; box-shadow: 0 18px 45px rgba(0,0,0,.4); }
+.hero-card { background: rgba(4,6,10,.95); border: 1px solid var(--border); border-radius: 20px; padding: 1.15rem 1.25rem; margin-bottom: 1rem; box-shadow: 0 18px 45px rgba(0,0,0,.6); }
 .main-title { font-size: 2.05rem; font-weight: 780; letter-spacing: -.04em; color: #f8fafc; margin-bottom: .12rem; }
 .sub-title { font-size: .95rem; color: var(--muted); }
-.metric-card { background: rgba(8,14,26,.9); border: 1px solid var(--border-soft); border-radius: 16px; padding: .9rem 1rem; min-height: 88px; }
+.metric-card { background: rgba(5,8,14,.95); border: 1px solid var(--border-soft); border-radius: 16px; padding: .9rem 1rem; min-height: 88px; }
 .metric-label { font-size: .78rem; color: var(--muted); margin-bottom: .28rem; }
 .metric-value { font-size: 1.05rem; color: #f8fafc; font-weight: 720; }
 .metric-caption { font-size: .75rem; color: var(--muted); margin-top: .18rem; }
 
 /* Conversation Bubbles */
-.user-line { background: rgba(96,165,250,.04); border: 1px solid rgba(96,165,250,.12); border-left: 4px solid var(--blue); border-radius: 16px; padding: .9rem 1rem; margin: .7rem 0; }
-.assistant-line { background: rgba(45,212,191,.04); border: 1px solid rgba(45,212,191,.12); border-left: 4px solid var(--accent); border-radius: 16px; padding: .9rem 1rem; margin: .7rem 0; }
+.user-line { background: rgba(59,130,246,.03); border: 1px solid rgba(59,130,246,.08); border-left: 4px solid var(--blue); border-radius: 16px; padding: .9rem 1rem; margin: .7rem 0; }
+.assistant-line { background: rgba(45,212,191,.03); border: 1px solid rgba(45,212,191,.08); border-left: 4px solid var(--accent); border-radius: 16px; padding: .9rem 1rem; margin: .7rem 0; }
 .msg-meta { font-size: .78rem; color: var(--muted); margin-bottom: .35rem; }
 
 /* Badges & Trace Elements */
-.badge { display: inline-block; padding: .18rem .52rem; border-radius: 999px; border: 1px solid var(--border-soft); background: #060a12; color: var(--muted); font-size: .73rem; margin-right: .35rem; margin-top: .25rem; }
-.badge-ok { border-color: rgba(34,197,94,.2); color: #86efac; background: rgba(34,197,94,.05); }
-.badge-error { border-color: rgba(239,68,68,.25); color: #fca5a5; background: rgba(239,68,68,.05); }
+.badge { display: inline-block; padding: .18rem .52rem; border-radius: 999px; border: 1px solid var(--border-soft); background: #020407; color: var(--muted); font-size: .73rem; margin-right: .35rem; margin-top: .25rem; }
+.badge-ok { border-color: rgba(34,197,94,.15); color: #86efac; background: rgba(34,197,94,.03); }
+.badge-error { border-color: rgba(239,68,68,.2); color: #fca5a5; background: rgba(239,68,68,.03); }
 .trace-title { font-size: .95rem; font-weight: 700; color: #f8fafc; margin-top: .7rem; margin-bottom: .25rem; }
-.step-card { background: #03060a; border: 1px solid var(--border-soft); border-radius: 12px; padding: .65rem .8rem; margin-bottom: .48rem; }
+.step-card { background: #010204; border: 1px solid var(--border-soft); border-radius: 12px; padding: .65rem .8rem; margin-bottom: .48rem; }
 .step-main { font-size: .86rem; font-weight: 700; color: #99f6e4; }
 .step-detail { font-size: .76rem; color: var(--muted); margin-top: .12rem; }
 
 /* Standard Buttons & Inputs */
-.stButton>button { background: #060a12; color: #e5edf7; border: 1px solid var(--border); border-radius: 12px; font-weight: 650; }
-.stButton>button:hover { background: #080e1a; border-color: #2dd4bf; color: #fff; }
-.stTextInput input, .stTextArea textarea { background: #04070d !important; color: #e5edf7 !important; border: 1px solid var(--border) !important; border-radius: 13px !important; }
+.stButton>button { background: #04060a; color: #e5edf7; border: 1px solid var(--border); border-radius: 12px; font-weight: 650; }
+.stButton>button:hover { background: #060910; border-color: #2dd4bf; color: #fff; }
+.stTextInput input, .stTextArea textarea { background: #020306 !important; color: #e5edf7 !important; border: 1px solid var(--border) !important; border-radius: 13px !important; }
 
 /* Target Bottom Block Elements */
-[data-testid="stBottomBlockContainer"] { background: #020408 !important; border-top: 1px solid var(--border); }
-[data-testid="stChatInput"] { background: #04070d !important; border: 1px solid var(--border) !important; }
+[data-testid="stBottomBlockContainer"] { background: #000000 !important; border-top: 1px solid var(--border); }
+[data-testid="stChatInput"] { background: #020306 !important; border: 1px solid var(--border) !important; }
 [data-testid="stChatInputTextArea"] { background: transparent !important; color: #e5edf7 !important; }
 [data-testid="stToolbar"] { background: transparent !important; }
 </style>
@@ -156,19 +157,17 @@ def add_step(steps: List[Dict[str, Any]], title: str, details: str = "", data: A
         print(compact_preview(data), flush=True)
 
 def backend_select_tool(question: str, user_role: str, top_k: int = 1) -> Dict[str, Any]:
-    # Strictly delegates to llm_server.py via HTTP POST
     payload = {
         "question": question,
         "user_role": user_role,
         "top_k": top_k
     }
     try:
-        response = requests.post(f"{LLM_SERVER_URL}/select_tool", json=payload, timeout=30)
+        response = requests.post(f"{LLM_SERVER_URL}/select_tool", json=payload, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
         return clean_json_value(response.json())
     except requests.exceptions.RequestException as e:
         LOGGER.error(f"HTTP request to LLM Server failed: {str(e)}")
-        # Construct a fallback error response that the UI can gracefully handle
         return {
             "selected_tool": None,
             "mode": None,
@@ -315,7 +314,9 @@ def run_full_pipeline(question: str, user_role: str) -> Dict[str, Any]:
         final_answer = summarize_deterministic(tool_name, tool_args, tool_output)
         status = "success" if isinstance(tool_output, dict) and tool_output.get("status") != "error" else "error"
         latency_ms = round((time.time() - started) * 1000, 2)
-        add_step(steps, "Pipeline completed", status=status, latency_ms=latency_ms)
+        
+        # FIXED: Removed the invalid keyword arguments and passed the data as a dictionary
+        add_step(steps, "Pipeline completed", f"{status} in {latency_ms} ms", {"status": status, "latency_ms": latency_ms})
         
         return {
             "status": status,
