@@ -81,11 +81,37 @@ st.markdown("""<style>
     --muted: #9caec4;
     --accent: #2dd4bf;
 }
-body, .stApp, .main {
+html, body, .stApp, .main, [data-testid="stAppViewContainer"], [data-testid="stAppViewBlockContainer"] {
     background: #0B111F;
     color: var(--text);
+    min-height: 100vh;
 }
-.block-container { max-width: 1360px; padding-top: 1.4rem; padding-bottom: 5rem; }
+[data-testid="stHeader"], [data-testid="stToolbar"], footer, #MainMenu {
+    background: #0B111F !important;
+    color: var(--text) !important;
+}
+[data-testid="stHeader"] {
+    border-bottom: 1px solid rgba(37, 52, 73, 0.7);
+}
+[data-testid="stChatInput"], [data-testid="stChatInput"] > div, [data-testid="stChatInput"] textarea {
+    background: #0B111F !important;
+    color: var(--text) !important;
+}
+[data-testid="stChatInput"] textarea {
+    border: 1px solid rgba(43, 59, 82, 0.95) !important;
+    border-radius: 13px !important;
+}
+[data-testid="stAppViewContainer"] > .main {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+.block-container {
+    max-width: 1360px;
+    padding-top: 1.4rem;
+    padding-bottom: 5rem;
+    flex: 1 1 auto;
+}
 [data-testid="stSidebar"] { background: var(--bg-sidebar); border-right: 1px solid var(--border); }
 [data-testid="stSidebar"] * { color: var(--text); }
 .hero-card { background: rgba(15, 27, 45, 0.95); border: 1px solid var(--border); border-radius: 16px; padding: 1.25rem; margin-bottom: 1rem; }
