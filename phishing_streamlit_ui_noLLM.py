@@ -1,7 +1,7 @@
 # phishing_streamlit_ui_noLLM.py
 # Deterministic Rendering: Bypasses LLM natural language summarization entirely to display the backend's raw tool outputs exactly as they are returned.
 # Dynamic Data Translation: Automatically parses varying backend data structures directly into native UI components.
-# Streamlined Interaction: Delegates 100% of tool selection and argument generation to llm_server.py (Top-1 Tool).
+# Streamlined Interaction: Delegates 100% of tool selection and argument generation to llm_server.py via HTTP API.
 
 import logging
 import os
@@ -9,20 +9,22 @@ import json
 import time
 import html
 import traceback
+import requests
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 import streamlit as st
 
-# STRICT DEPENDENCY: Routing and Argument Generation happen here.
-import llm_server as backend_router
-
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 LOGGER = logging.getLogger("phishing_streamlit_ui_noLLM")
 
+# Environment & Connection Setup
 EXECUTION_MODE = os.getenv("MCP_EXECUTION_MODE", "direct").strip().lower()
 MCP_SERVER_COMMAND = os.getenv("MCP_SERVER_COMMAND", "python")
 MCP_SERVER_SCRIPT = os.getenv("MCP_SERVER_SCRIPT", "phishing_mcp_server.py")
 DEFAULT_USER_ROLE = os.getenv("DEFAULT_USER_ROLE", "user")
+
+# NEW: API endpoint for the LLM Router
+LLM_SERVER_URL = os.getenv("LLM_SERVER_URL", "http://127.0.0.1:8001").rstrip("/")
 
 APP_TITLE = "Phishing Simulation Analytics Copilot - No LLM"
 
@@ -109,26 +111,11 @@ st.markdown("""
 .stButton>button:hover { background: #080e1a; border-color: #2dd4bf; color: #fff; }
 .stTextInput input, .stTextArea textarea { background: #04070d !important; color: #e5edf7 !important; border: 1px solid var(--border) !important; border-radius: 13px !important; }
 
-/* --- TARGETING THE CHATBOX AND BOTTOM UI ELEMENTS --- */
-/* The fixed container at the bottom */
-[data-testid="stBottomBlockContainer"] {
-    background: #020408 !important; 
-    border-top: 1px solid var(--border);
-}
-/* The outer chat input shell */
-[data-testid="stChatInput"] {
-    background: #04070d !important;
-    border: 1px solid var(--border) !important;
-}
-/* The actual text area inside the chat input */
-[data-testid="stChatInputTextArea"] {
-    background: transparent !important;
-    color: #e5edf7 !important;
-}
-/* Toolbar elements */
-[data-testid="stToolbar"] {
-    background: transparent !important;
-}
+/* Target Bottom Block Elements */
+[data-testid="stBottomBlockContainer"] { background: #020408 !important; border-top: 1px solid var(--border); }
+[data-testid="stChatInput"] { background: #04070d !important; border: 1px solid var(--border) !important; }
+[data-testid="stChatInputTextArea"] { background: transparent !important; color: #e5edf7 !important; }
+[data-testid="stToolbar"] { background: transparent !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -169,9 +156,26 @@ def add_step(steps: List[Dict[str, Any]], title: str, details: str = "", data: A
         print(compact_preview(data), flush=True)
 
 def backend_select_tool(question: str, user_role: str, top_k: int = 1) -> Dict[str, Any]:
-    # Strictly delegates to llm_server.py Top 1 Route
-    request = backend_router.SelectToolRequest(question=question, user_role=user_role, top_k=top_k)
-    return clean_json_value(backend_router.select_tool(request))
+    # Strictly delegates to llm_server.py via HTTP POST
+    payload = {
+        "question": question,
+        "user_role": user_role,
+        "top_k": top_k
+    }
+    try:
+        response = requests.post(f"{LLM_SERVER_URL}/select_tool", json=payload, timeout=30)
+        response.raise_for_status()
+        return clean_json_value(response.json())
+    except requests.exceptions.RequestException as e:
+        LOGGER.error(f"HTTP request to LLM Server failed: {str(e)}")
+        # Construct a fallback error response that the UI can gracefully handle
+        return {
+            "selected_tool": None,
+            "mode": None,
+            "args": {},
+            "validated": False,
+            "validation_error": f"Failed to connect to LLM server at {LLM_SERVER_URL}. Error: {str(e)}"
+        }
 
 def select_tool_no_llm(question: str, user_role: str, steps: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     selection = backend_select_tool(question, user_role)
@@ -186,10 +190,10 @@ def select_tool_no_llm(question: str, user_role: str, steps: Optional[List[Dict[
     if selection.get("validation_error"):
         result["validation_error"] = selection.get("validation_error")
         
-    result["source"] = selection.get("source")
+    result["source"] = selection.get("source", "unknown")
     result["routing_type"] = "llm_server_delegated_no_llm_answer"
     
-    add_step(steps, "Tool selected via llm_server.py", f"{tool_name} | source={selection.get('source')}", result)
+    add_step(steps, "Tool selected via API (llm_server.py)", f"{tool_name} | source={selection.get('source')}", result)
     return clean_json_value(result)
 
 def safe_json_loads(text: str) -> Dict[str, Any]:
@@ -275,7 +279,6 @@ def execute_selected_tool(tool_name: str, tool_args: Dict[str, Any], steps: Opti
     return execute_tool_direct(tool_name, tool_args, steps)
 
 def summarize_deterministic(tool_name: str, tool_args: Dict[str, Any], tool_output: Dict[str, Any]) -> str:
-    # 100% Deterministic: Bypasses LLM, pulls human-readable UI text straight from backend MCP execution
     if isinstance(tool_output, dict) and "ui_summary" in tool_output:
         return tool_output["ui_summary"]
 
@@ -309,7 +312,6 @@ def run_full_pipeline(question: str, user_role: str) -> Dict[str, Any]:
         tool_args = selection.get("args") or {}
         tool_output = execute_selected_tool(tool_name, tool_args, steps)
         
-        # Pull deterministic summary without LLM
         final_answer = summarize_deterministic(tool_name, tool_args, tool_output)
         status = "success" if isinstance(tool_output, dict) and tool_output.get("status") != "error" else "error"
         latency_ms = round((time.time() - started) * 1000, 2)
@@ -359,7 +361,7 @@ def render_sidebar() -> None:
         st.session_state.show_debug = st.toggle("Show trace below answers", value=st.session_state.show_debug)
         st.markdown("---")
         st.caption("(No LLM mode)")
-        st.caption("Tool selection: delegated to llm_server.py")
+        st.caption(f"Router API: {LLM_SERVER_URL}")
         st.caption("Summary: Deterministic only")
         st.caption(f"Execution mode: {EXECUTION_MODE}")
         st.markdown("---")
@@ -384,10 +386,10 @@ def render_sidebar() -> None:
                 st.rerun()
 
 def render_header() -> None:
-    st.markdown(f"""<div class="hero-card"><div class="main-title">{APP_TITLE}</div><div class="sub-title">Selection and argument shaping come from llm_server.py · This UI only renders and executes the chosen tool · No LLM answer generation here</div></div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div class="hero-card"><div class="main-title">{APP_TITLE}</div><div class="sub-title">Selection and argument shaping handled by external API ({LLM_SERVER_URL}) · This UI only renders and executes the chosen tool</div></div>""", unsafe_allow_html=True)
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        st.markdown(f"""<div class="metric-card"><div class="metric-label">Routing</div><div class="metric-value">Delegated</div><div class="metric-caption">llm_server.py Top-1</div></div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div class="metric-card"><div class="metric-label">Routing</div><div class="metric-value">API Delegated</div><div class="metric-caption">HTTP POST /select_tool</div></div>""", unsafe_allow_html=True)
     with c2:
         st.markdown(f"""<div class="metric-card"><div class="metric-label">Execution</div><div class="metric-value">{EXECUTION_MODE}</div><div class="metric-caption">MCP/Direct tool layer</div></div>""", unsafe_allow_html=True)
     with c3:
@@ -396,7 +398,7 @@ def render_header() -> None:
         role = st.session_state.user_role
         st.markdown(f"""<div class="metric-card"><div class="metric-label">Access Mode</div><div class="metric-value">{role}</div><div class="metric-caption">Role-aware backend output</div></div>""", unsafe_allow_html=True)
     with st.expander("Current architecture", expanded=False):
-        st.code("phishing_streamlit_ui_noLLM.py -> llm_server.py selects one tool + builds args -> phishing_mcp_server.py executes selected MCP/direct tool -> deterministic summary -> no LLM answer generation in this UI", language="text")
+        st.code(f"phishing_streamlit_ui_noLLM.py -> HTTP POST to {LLM_SERVER_URL} -> phishing_mcp_server.py executes tool -> UI summary", language="text")
 
 def render_clear_tool_output(tool_output: Any) -> None:
     if isinstance(tool_output, list):
@@ -477,7 +479,7 @@ def render_trace(backend: Dict[str, Any], idx) -> None:
     tool_meta = (tool_output or {}).get("tool_catalog_entry") or {}
     ui_instruction = (tool_output or {}).get("ui_instruction") or (tool_output or {}).get("trace_instruction")
     
-    st.markdown(f"""<div class="answer-toolbar"><span class="badge {badge_class}">Tool: {html.escape(str(selected_tool or "-"))}</span><span class="badge {badge_class}">Routing: Delegated Top-1</span><span class="badge">Latency: {html.escape(str(latency_ms or "-"))} ms</span><span class="badge {badge_class}">Status: {html.escape(str(status))}</span></div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div class="answer-toolbar"><span class="badge {badge_class}">Tool: {html.escape(str(selected_tool or "-"))}</span><span class="badge {badge_class}">Routing: HTTP API Request</span><span class="badge">Latency: {html.escape(str(latency_ms or "-"))} ms</span><span class="badge {badge_class}">Status: {html.escape(str(status))}</span></div>""", unsafe_allow_html=True)
     
     if tool_meta:
         st.caption(f"Tool contract: {tool_meta.get('description', '')}")
@@ -487,7 +489,7 @@ def render_trace(backend: Dict[str, Any], idx) -> None:
     with st.expander("Trace", expanded=False):
         tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Tool Selection", "Tool Arguments", "Tool Contract", "Execution Steps", "Raw JSON", "Download"])
         with tab1:
-            st.markdown('<div class="trace-title">Tool Selection - llm_server.py</div>', unsafe_allow_html=True)
+            st.markdown('<div class="trace-title">Tool Selection - API Server</div>', unsafe_allow_html=True)
             c1, c2 = st.columns(2)
             c1.metric("Selected Tool", str(backend.get("selected_tool") or "-"))
             selection = backend.get("selection") or {}
