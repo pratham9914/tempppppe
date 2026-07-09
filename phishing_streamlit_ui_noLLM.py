@@ -74,7 +74,7 @@ st.markdown("""
     --danger: #ef4444;
 }
 .stApp { background: linear-gradient(135deg, #08111f 0%, #0b1220 40%, #0b1728 100%); color: var(--text); }
-.block-container { max-width: 1360px; padding-top: 1.4rem; padding-bottom: 2rem; }
+.block-container { max-width: 1360px; padding-top: 1.4rem; padding-bottom: 5rem; }
 [data-testid="stSidebar"] { background: var(--bg-sidebar); border-right: 1px solid var(--border); }
 [data-testid="stSidebar"] .stMarkdown p { color: var(--text); }
 .hero-card { background: rgba(15,27,45,.9); border: 1px solid var(--border); border-radius: 20px; padding: 1.15rem 1.25rem; margin-bottom: 1rem; box-shadow: 0 18px 45px rgba(0,0,0,.18); }
@@ -489,24 +489,26 @@ def render_chat() -> None:
         st.info("Ask a question below or choose a quick prompt from the sidebar.")
         return
     st.markdown("### Conversation")
-    for idx, msg in enumerate(st.session_state.messages):
-        role = msg.get("role")
-        if role == "user":
-            st.markdown(f"""<div class="user-line"><div class="msg-meta">You ({msg.get('time', '')})</div><div class="msg-content">{msg.get('content', '')}</div></div>""", unsafe_allow_html=True)
-        else:
-            backend = msg.get("backend", {}) or {}
-            tool = backend.get("selected_tool")
-            latency = backend.get("latency_ms")
-            meta = f"Copilot ({msg.get('time', '')})"
-            if tool:
-                meta += f" · {tool} ({latency} ms)"
-            st.markdown(f"""<div class="assistant-line"><div class="msg-meta">{meta}</div><div class="msg-content">{msg.get('content', '')}</div></div>""", unsafe_allow_html=True)
-            tool_output = backend.get("tool_output")
-            if tool_output not in (None, {}):
-                with st.container():
-                    st.write("")
-                    render_clear_tool_output(tool_output)
-            render_trace(backend, idx)
+    chat_container = st.container(height=550, border=False)
+    with chat_container:
+        for idx, msg in enumerate(st.session_state.messages):
+            role = msg.get("role")
+            if role == "user":
+                st.markdown(f"""<div class="user-line"><div class="msg-meta">You ({msg.get('time', '')})</div><div class="msg-content">{msg.get('content', '')}</div></div>""", unsafe_allow_html=True)
+            else:
+                backend = msg.get("backend", {}) or {}
+                tool = backend.get("selected_tool")
+                latency = backend.get("latency_ms")
+                meta = f"Copilot ({msg.get('time', '')})"
+                if tool:
+                    meta += f" · {tool} ({latency} ms)"
+                st.markdown(f"""<div class="assistant-line"><div class="msg-meta">{meta}</div><div class="msg-content">{msg.get('content', '')}</div></div>""", unsafe_allow_html=True)
+                tool_output = backend.get("tool_output")
+                if tool_output not in (None, {}):
+                    with st.container():
+                        st.write("")
+                        render_clear_tool_output(tool_output)
+                render_trace(backend, idx)
 
 def handle_question(question: str) -> None:
     question = str(question or "").strip()

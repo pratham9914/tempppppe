@@ -71,7 +71,7 @@ body, .stApp, .main {
     background: #0B111F;
     color: var(--text);
 }
-.block-container { max-width: 1360px; padding-top: 1.4rem; padding-bottom: 2rem; }
+.block-container { max-width: 1360px; padding-top: 1.4rem; padding-bottom: 5rem; }
 [data-testid="stSidebar"] { background: var(--bg-sidebar); border-right: 1px solid var(--border); }
 [data-testid="stSidebar"] * { color: var(--text); }
 .hero-card { background: rgba(15, 27, 45, 0.95); border: 1px solid var(--border); border-radius: 16px; padding: 1.25rem; margin-bottom: 1rem; }
@@ -459,29 +459,32 @@ def render_chat() -> None:
         st.info("Ask a question below or choose a quick prompt from the sidebar.")
         return
 
-    for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.write(msg["content"])
-            if msg["role"] == "assistant" and isinstance(msg.get("backend"), dict):
-                backend = msg["backend"]
-                tool_outputs = backend.get("tool_outputs", {})
-                if tool_outputs:
-                    st.markdown("---")
-                    st.markdown("### 📊 Analytics Data")
-                    for t_name, t_out in tool_outputs.items():
-                        ui_highlights = t_out.get("ui_highlights", []) if isinstance(t_out, dict) else []
-                        if ui_highlights:
-                            st.markdown(f"**{TOOL_LABELS.get(t_name, t_name)} Metrics:**")
-                            cols = st.columns(min(len(ui_highlights), 4))
-                            for i, highlight in enumerate(ui_highlights):
-                                label = highlight.get("label", "")
-                                value = highlight.get("value", "")
-                                cols[i % 4].metric(label=label, value=value)
-                            st.write("")
+    chat_container = st.container(height=550, border=False)
 
-                        with st.expander(f"Raw Output: {TOOL_LABELS.get(t_name, t_name)}"):
-                            st.json(t_out)
-                render_trace_drawer(backend)
+    with chat_container:
+        for msg in st.session_state.messages:
+            with st.chat_message(msg["role"]):
+                st.write(msg["content"])
+                if msg["role"] == "assistant" and isinstance(msg.get("backend"), dict):
+                    backend = msg["backend"]
+                    tool_outputs = backend.get("tool_outputs", {})
+                    if tool_outputs:
+                        st.markdown("---")
+                        st.markdown("### 📊 Analytics Data")
+                        for t_name, t_out in tool_outputs.items():
+                            ui_highlights = t_out.get("ui_highlights", []) if isinstance(t_out, dict) else []
+                            if ui_highlights:
+                                st.markdown(f"**{TOOL_LABELS.get(t_name, t_name)} Metrics:**")
+                                cols = st.columns(min(len(ui_highlights), 4))
+                                for i, highlight in enumerate(ui_highlights):
+                                    label = highlight.get("label", "")
+                                    value = highlight.get("value", "")
+                                    cols[i % 4].metric(label=label, value=value)
+                                st.write("")
+
+                            with st.expander(f"Raw Output: {TOOL_LABELS.get(t_name, t_name)}"):
+                                st.json(t_out)
+                    render_trace_drawer(backend)
 
 
 def handle_question(question: str) -> None:
