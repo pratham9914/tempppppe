@@ -8,7 +8,6 @@ import os
 import json
 import time
 import asyncio
-import sys
 import traceback
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -18,19 +17,6 @@ import streamlit as st
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 LOGGER = logging.getLogger("phishing_streamlit_ui")
-
-def configure_terminal_logging(logger: logging.Logger) -> None:
-    if any(getattr(handler, "_phish_terminal_handler", False) for handler in logger.handlers):
-        return
-    handler = logging.StreamHandler(stream=sys.stdout)
-    handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
-    handler._phish_terminal_handler = True
-    logger.addHandler(handler)
-    logger.setLevel(logging.INFO)
-    logger.propagate = False
-
-
-configure_terminal_logging(LOGGER)
 
 # Server Configuration Environments
 LLM_SERVER_URL = os.getenv("LLM_SERVER_URL", "http://127.0.0.1:8001").rstrip("/")
@@ -71,60 +57,160 @@ EXAMPLE_QUESTIONS = [
 ]
 
 st.markdown("""<style>
+/* ==========================================================
+   GLOBAL THEME & TYPOGRAPHY
+   ========================================================== */
 :root {
     --bg-main: #0B111F;
     --bg-sidebar: #07101d;
-    --bg-card: #0F1B2D;
-    --border: #253449;
+    --bg-card: #101C2D;
+    --border: #243549;
     --border-soft: #1e2b3d;
-    --text: #e5edf7;
-    --muted: #9caec4;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
     --accent: #2dd4bf;
+    --accent-glow: rgba(45, 212, 191, 0.15);
 }
+
 html, body, .stApp, .main, [data-testid="stAppViewContainer"], [data-testid="stAppViewBlockContainer"] {
-    background: #0B111F;
+    min-height: 100vh;
+    background: var(--bg-main) !important;
     color: var(--text);
-    min-height: 100vh;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
 }
-[data-testid="stHeader"], [data-testid="stToolbar"], footer, #MainMenu {
-    background: #0B111F !important;
-    color: var(--text) !important;
+
+/* Hide default Streamlit header and footer for a clean app feel */
+header[data-testid="stHeader"] { display: none; }
+footer { display: none; }
+
+/* Custom Scrollbars */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--bg-main); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+.block-container { 
+    max-width: 1400px; 
+    padding-top: 2rem !important; 
+    padding-bottom: 6rem !important; 
 }
-[data-testid="stHeader"] {
-    border-bottom: 1px solid rgba(37, 52, 73, 0.7);
+
+/* ==========================================================
+   NATIVE STREAMLIT OVERRIDES (Buttons, Inputs, Metrics)
+   ========================================================== */
+/* Buttons */
+.stButton > button {
+    background-color: var(--bg-card);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0.5rem 1rem;
+    font-weight: 500;
+    transition: all 0.2s ease;
 }
-[data-testid="stChatInput"], [data-testid="stChatInput"] > div, [data-testid="stChatInput"] textarea {
-    background: #0B111F !important;
-    color: var(--text) !important;
+.stButton > button:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    box-shadow: 0 0 12px var(--accent-glow);
 }
-[data-testid="stChatInput"] textarea {
-    border: 1px solid rgba(43, 59, 82, 0.95) !important;
-    border-radius: 13px !important;
+
+/* Selectbox */
+[data-testid="stSelectbox"] div[data-baseweb="select"] > div {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
 }
-[data-testid="stAppViewContainer"] > .main {
-    display: flex;
-    flex-direction: column;
-    min-height: 100vh;
+
+/* Expanders */
+[data-testid="stExpander"] {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
 }
-.block-container {
-    max-width: 1360px;
-    padding-top: 1.4rem;
-    padding-bottom: 5rem;
-    flex: 1 1 auto;
+[data-testid="stExpander"] summary {
+    background-color: rgba(16, 28, 45, 0.5);
+    padding: 1rem;
 }
-[data-testid="stSidebar"] { background: var(--bg-sidebar); border-right: 1px solid var(--border); }
-[data-testid="stSidebar"] * { color: var(--text); }
-.hero-card { background: rgba(15, 27, 45, 0.95); border: 1px solid var(--border); border-radius: 16px; padding: 1.25rem; margin-bottom: 1rem; }
-.main-title { font-size: 2.15rem; font-weight: 700; letter-spacing: -0.04em; margin-bottom: 0.25rem; color: #f8fafc; }
-.sub-title { font-size: 0.95rem; color: var(--muted); }
-.metric-card { background: rgba(15, 27, 45, 0.92); border: 1px solid var(--border-soft); border-radius: 14px; padding: 1rem; min-height: 96px; }
-.metric-label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
-.metric-value { font-size: 1.05rem; color: #f8fafc; font-weight: 700; margin-top: 0.4rem; }
+[data-testid="stExpander"] summary:hover {
+    color: var(--accent);
+}
+
+/* Streamlit Metrics (Used in Chat Analytics) */
+[data-testid="stMetric"] {
+    background: rgba(16, 28, 45, 0.6);
+    border: 1px solid var(--border-soft);
+    padding: 1rem;
+    border-radius: 12px;
+}
+[data-testid="stMetricValue"] {
+    color: var(--accent);
+    font-weight: 700;
+}
+
+/* ==========================================================
+   CUSTOM CARDS & SIDEBAR
+   ========================================================== */
+[data-testid="stSidebar"] { 
+    background: var(--bg-sidebar) !important; 
+    border-right: 1px solid var(--border); 
+}
+.hero-card { 
+    background: linear-gradient(145deg, #101C2D, #0B111F);
+    border: 1px solid var(--border); 
+    border-radius: 16px; 
+    padding: 1.5rem; 
+    margin-bottom: 1.5rem; 
+    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+}
+.main-title { font-size: 2.2rem; font-weight: 800; letter-spacing: -0.02em; margin-bottom: 0.3rem; color: #ffffff; }
+.sub-title { font-size: 1rem; color: var(--muted); }
+
+.metric-card { 
+    background: var(--bg-card); 
+    border: 1px solid var(--border); 
+    border-radius: 14px; 
+    padding: 1.2rem; 
+    min-height: 100px;
+    transition: transform 0.2s ease;
+}
+.metric-card:hover { transform: translateY(-2px); border-color: var(--border-soft); }
+.metric-label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;}
+.metric-value { font-size: 1.15rem; color: #ffffff; font-weight: 700; margin-top: 0.5rem; }
 .metric-caption { font-size: 0.75rem; color: var(--muted); margin-top: 0.25rem; }
-.badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.75rem; border: 1px solid var(--border); background: #101d31; color: var(--muted); margin-right: 0.5rem; margin-top: 0.35rem; }
-.badge-tool { border-color: rgba(45, 212, 191, 0.3); color: #2dd4bf; }
-.badge-latency { border-color: rgba(96, 165, 250, 0.3); color: #60a5fa; }
-.badge-ok { border-color: rgba(34, 197, 94, 0.3); color: #22c55e; }
+
+.badge { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 999px; font-size: 0.75rem; font-weight: 500; border: 1px solid var(--border); background: rgba(16, 29, 49, 0.6); color: var(--muted); margin-right: 0.5rem; margin-top: 0.35rem; }
+.badge-tool { border-color: rgba(45, 212, 191, 0.4); color: #2dd4bf; background: rgba(45, 212, 191, 0.05); }
+.badge-latency { border-color: rgba(96, 165, 250, 0.4); color: #60a5fa; background: rgba(96, 165, 250, 0.05); }
+
+/* ==========================================================
+   CHAT INPUT
+   ========================================================== */
+[data-testid="stBottom"], [data-testid="stBottom"] > div, [data-testid="stBottomBlock"], [data-testid="stBottomBlock"] > div {
+    background: transparent !important;
+    background-image: linear-gradient(to top, #0B111F 80%, transparent) !important;
+    border: none !important;
+    padding-bottom: 1rem !important;
+}
+
+[data-testid="stChatInput"] { background: transparent !important; padding: 0.75rem 1rem !important; }
+[data-testid="stChatInput"] > div {
+    background: var(--bg-card) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 18px !important;
+    box-shadow: 0 8px 30px rgba(0,0,0,.25) !important;
+    transition: all .2s ease;
+}
+[data-testid="stChatInput"] > div:focus-within {
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 1px var(--accent), 0 8px 30px rgba(0,0,0,.35) !important;
+}
+[data-testid="stChatInput"] textarea { background: transparent !important; color: #ffffff !important; font-size: 15px !important; caret-color: var(--accent) !important; }
+[data-testid="stChatInput"] textarea::placeholder { color: #6E839B !important; }
+[data-testid="stChatInputSubmitButton"] { background: transparent !important; border: none !important; }
+[data-testid="stChatInputSubmitButton"] svg { fill: var(--accent) !important; color: var(--accent) !important; transition: .2s ease; }
+[data-testid="stChatInputSubmitButton"]:hover svg { fill: #ffffff !important; color: #ffffff !important; transform: scale(1.1); }
 </style>""", unsafe_allow_html=True)
 
 
@@ -165,9 +251,6 @@ def compact_preview(value: Any, limit: int = 1500) -> str:
 def add_log(logs: List[Dict[str, Any]], step: str, message: str, data: Any = None) -> None:
     item = {"time": now_time(), "step": step, "message": message, "data": clean_json_value(data) if data is not None else None}
     logs.append(item)
-    LOGGER.info("%s | %s", step, message)
-    if data is not None:
-        print(compact_preview(data), flush=True)
 
 
 def post_json(url: str, payload: Dict[str, Any], timeout: int = REQUEST_TIMEOUT) -> Dict[str, Any]:
@@ -282,12 +365,14 @@ def execute_selected_tool(tool_name: str, tool_args: Dict[str, Any], logs: Optio
         return {"status": "error", "message": "Direct execution mode is disabled in this UI."}
     return asyncio.run(execute_tool_mcp_stdio_async(tool_name, tool_args, logs))
 
+
 async def execute_selected_tool_async(tool_name: str, tool_args: Dict[str, Any], logs: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     logs = logs if logs is not None else []
     if EXECUTION_MODE != "mcp_stdio":
         add_log(logs, "EXECUTION_WARNING", "Direct execution mode is disabled. Mocking failure.")
         return {"status": "error", "message": "Direct execution mode is disabled in this UI."}
     return await execute_tool_mcp_stdio_async(tool_name, tool_args, logs)
+
 
 async def execute_selected_tools_async(selected_tools: List[Dict[str, Any]], logs: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     logs = logs if logs is not None else []
@@ -395,16 +480,16 @@ def init_state() -> None:
 
 def render_sidebar() -> None:
     with st.sidebar:
-        st.markdown("### Control Panel")
+        st.markdown("### ⚙️ Control Panel")
         st.selectbox("Access mode", ["user", "admin"], key="user_role")
         st.session_state.show_debug = st.toggle("Show trace below answers", value=st.session_state.show_debug)
 
         st.markdown("---")
         ok, health = check_llm_server()
         if ok:
-            st.success("Routing engine online")
+            st.success("🟢 Routing engine online")
         else:
-            st.error("Routing engine not reachable")
+            st.error("🔴 Routing engine not reachable")
         with st.expander("Server health", expanded=False):
             st.json(health)
 
@@ -427,7 +512,7 @@ def render_sidebar() -> None:
             st.rerun()
 
         st.markdown("---")
-        st.markdown("### Quick prompts")
+        st.markdown("### ⚡ Quick Prompts")
         for idx, item in enumerate(EXAMPLE_QUESTIONS):
             if st.button(item, key=f"example_{idx}", use_container_width=True):
                 st.session_state.pending_question = item
@@ -439,7 +524,7 @@ def render_header() -> None:
         f"""
         <div class="hero-card">
             <div class="main-title">{APP_TITLE}</div>
-            <div class="sub-title">Cache-first analytics • semantic tool routing • isolated MCP runtime</div>
+            <div class="sub-title">Cache-first analytics • Semantic tool routing • Isolated MCP runtime</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -460,6 +545,7 @@ def render_header() -> None:
             f"<div class='metric-card'><div class='metric-label'>Role</div><div class='metric-value'>{st.session_state.user_role.upper()}</div><div class='metric-caption'>Visibility enforcement</div></div>",
             unsafe_allow_html=True,
         )
+    st.write("") # Spacer
 
 
 def render_trace_drawer(backend: Dict[str, Any]) -> None:
@@ -471,7 +557,7 @@ def render_trace_drawer(backend: Dict[str, Any]) -> None:
 
     st.markdown(
         f"""
-        <div style='margin-top: 10px; margin-bottom: 10px;'>
+        <div style='margin-top: 15px; margin-bottom: 15px;'>
             <span class='badge badge-tool'>Tools: {tool_names}</span>
             <span class='badge badge-latency'>Latency: {backend.get('latency_ms', 0)} ms</span>
         </div>
@@ -499,11 +585,10 @@ def render_trace_drawer(backend: Dict[str, Any]) -> None:
 
 def render_chat() -> None:
     if not st.session_state.messages:
-        st.info("Ask a question below or choose a quick prompt from the sidebar.")
         return
 
-    chat_container = st.container(height=550, border=False)
-
+    chat_container = st.container(height=600, border=False)
+    
     with chat_container:
         for msg in st.session_state.messages:
             with st.chat_message(msg["role"]):
@@ -513,11 +598,10 @@ def render_chat() -> None:
                     tool_outputs = backend.get("tool_outputs", {})
                     if tool_outputs:
                         st.markdown("---")
-                        st.markdown("### 📊 Analytics Data")
                         for t_name, t_out in tool_outputs.items():
                             ui_highlights = t_out.get("ui_highlights", []) if isinstance(t_out, dict) else []
                             if ui_highlights:
-                                st.markdown(f"**{TOOL_LABELS.get(t_name, t_name)} Metrics:**")
+                                st.markdown(f"##### {TOOL_LABELS.get(t_name, t_name)} Metrics")
                                 cols = st.columns(min(len(ui_highlights), 4))
                                 for i, highlight in enumerate(ui_highlights):
                                     label = highlight.get("label", "")
@@ -548,7 +632,7 @@ def handle_question(question: str) -> None:
                 if tool.get("tool_name"):
                     previous_tools.append(tool.get("tool_name"))
 
-    with st.spinner("Executing workflow..."):
+    with st.spinner("Analyzing request and routing..."):
         result = run_full_pipeline(question, st.session_state.user_role, previous_tools)
 
     LOGGER.info("HANDLE_QUESTION_RESULT | question=%s | status=%s", question, result.get("status"))
@@ -572,6 +656,7 @@ def main() -> None:
         st.rerun()
 
     render_chat()
+    
     prompt = st.chat_input("Ask about phishing analytics, recommendations, predictions, or cache status...")
     if prompt:
         handle_question(prompt)
@@ -580,6 +665,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
-# streamlit run phishing_streamlit_ui.py
