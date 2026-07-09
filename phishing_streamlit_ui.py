@@ -8,6 +8,7 @@ import os
 import json
 import time
 import asyncio
+import sys
 import traceback
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -17,6 +18,19 @@ import streamlit as st
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 LOGGER = logging.getLogger("phishing_streamlit_ui")
+
+def configure_terminal_logging(logger: logging.Logger) -> None:
+    if any(getattr(handler, "_phish_terminal_handler", False) for handler in logger.handlers):
+        return
+    handler = logging.StreamHandler(stream=sys.stdout)
+    handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
+    handler._phish_terminal_handler = True
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
+
+configure_terminal_logging(LOGGER)
 
 # Server Configuration Environments
 LLM_SERVER_URL = os.getenv("LLM_SERVER_URL", "http://127.0.0.1:8001").rstrip("/")
@@ -125,6 +139,9 @@ def compact_preview(value: Any, limit: int = 1500) -> str:
 def add_log(logs: List[Dict[str, Any]], step: str, message: str, data: Any = None) -> None:
     item = {"time": now_time(), "step": step, "message": message, "data": clean_json_value(data) if data is not None else None}
     logs.append(item)
+    LOGGER.info("%s | %s", step, message)
+    if data is not None:
+        print(compact_preview(data), flush=True)
 
 
 def post_json(url: str, payload: Dict[str, Any], timeout: int = REQUEST_TIMEOUT) -> Dict[str, Any]:

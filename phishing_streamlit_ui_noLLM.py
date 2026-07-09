@@ -8,6 +8,7 @@ import os
 import json
 import time
 import html
+import sys
 import traceback
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -18,6 +19,19 @@ import llm_server as backend_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 LOGGER = logging.getLogger("phishing_streamlit_ui_noLLM")
+
+def configure_terminal_logging(logger: logging.Logger) -> None:
+    if any(getattr(handler, "_phish_terminal_handler", False) for handler in logger.handlers):
+        return
+    handler = logging.StreamHandler(stream=sys.stdout)
+    handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
+    handler._phish_terminal_handler = True
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
+
+configure_terminal_logging(LOGGER)
 
 EXECUTION_MODE = os.getenv("MCP_EXECUTION_MODE", "direct").strip().lower()
 MCP_SERVER_COMMAND = os.getenv("MCP_SERVER_COMMAND", "python")
