@@ -1,21 +1,20 @@
 # phishing_streamlit_ui_noLLM.py
 # Deterministic Rendering: Bypasses LLM natural language summarization entirely to display the backend's raw tool outputs exactly as they are returned.
-
-# Dynamic Data Translation: Automatically parses varying backend data structures (like dictionaries, lists, and primitives) directly into native UI components (tables, metrics, JSON blocks) using hardcoded logic.
-
-# Streamlined Interaction: Focuses purely on executing analytical tasks and returning immediate, structured factual data without narrative interpretation.
+# Dynamic Data Translation: Automatically parses varying backend data structures directly into native UI components.
+# Streamlined Interaction: Delegates 100% of tool selection and argument generation to llm_server.py (Top-1 Tool).
 
 import logging
 import os
-import re
 import json
 import time
-import math
 import html
 import traceback
 from datetime import datetime
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any, Dict, List, Optional
 import streamlit as st
+
+# STRICT DEPENDENCY: Routing and Argument Generation happen here.
+import llm_server as backend_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 LOGGER = logging.getLogger("phishing_streamlit_ui_noLLM")
@@ -26,25 +25,8 @@ MCP_SERVER_SCRIPT = os.getenv("MCP_SERVER_SCRIPT", "phishing_mcp_server.py")
 DEFAULT_USER_ROLE = os.getenv("DEFAULT_USER_ROLE", "user")
 
 APP_TITLE = "Phishing Simulation Analytics Copilot - No LLM"
-DEFAULT_TOP_N = int(os.getenv("DEFAULT_TOP_N", "20"))
-DEFAULT_LIMIT = int(os.getenv("DEFAULT_LIMIT", "10"))
-HIGH_RISK_THRESHOLD = float(os.getenv("HIGH_RISK_THRESHOLD", "0.60"))
 
 st.set_page_config(page_title=APP_TITLE, page_icon="🎣", layout="wide", initial_sidebar_state="expanded")
-
-MONTHS = {
-    "jan": "January", "january": "January", "01": "January",
-    "feb": "February", "february": "February", "02": "February",
-    "mar": "March", "march": "March", "03": "March",
-    "apr": "April", "april": "April", "04": "April",
-    "may": "May", "jun": "June", "june": "June", "06": "June",
-    "jul": "July", "july": "July", "07": "July",
-    "aug": "August", "august": "August", "08": "August",
-    "sep": "September", "september": "September", "09": "September",
-    "oct": "October", "october": "October", "10": "October",
-    "nov": "November", "november": "November", "11": "November",
-    "dec": "December", "december": "December", "12": "December"
-}
 
 TOOL_LABELS = {
     "run_analytics": "Historical analytics",
@@ -55,97 +37,6 @@ TOOL_LABELS = {
     "cache_control": "Cache control",
     "cache_status": "Cache status",
     "system_info": "System info"
-}
-
-TOOL_CATALOG: Dict[str, Dict[str, Any]] = {
-    "run_analytics": {
-        "description": "Historical aggregate phishing analytics counts percentages rates trends grouped summaries city department campaign template subject month year designation grade overall metrics.",
-        "examples": [
-            "percentage clicked January", "city with most clickers",
-            "department wise click rate", "campaign performance", "monthly trend"
-        ],
-        "keywords": [
-            "percentage", "percent", "count", "counts", "rate", "trend", "analytics",
-            "overall", "city", "department", "campaign", "template", "subject",
-            "month", "year", "designation", "grade", "overall metrics"
-        ]
-    },
-    "employee_lookup": {
-        "description": "Employee historical lookup profile find employees top historically risky employees not prediction.",
-        "examples": [
-            "show profile for BRID", "find employees in Pune",
-            "top risky employees", "high risk user historical"
-        ],
-        "keywords": [
-            "profile", "employee", "employees", "brid", "find", "lookup",
-            "top risky", "historically risky", "high risk user", "risky employees", "history"
-        ]
-    },
-    "predict_risk": {
-        "description": "Machine learning prediction probability likelihood forecast by BRID manual fields population predicted high risk users.",
-        "examples": [
-            "predict no action probability for BRID",
-            "predict for city Pune department cyber subject password reset",
-            "predicted high risk users"
-        ],
-        "keywords": [
-            "predict", "prediction", "probability", "likely", "chance", "forecast",
-            "ml", "model", "no action probability", "clicked probability",
-            "predicted high risk", "predicted", "high risk population"
-        ]
-    },
-    "recommend_actions": {
-        "description": "Improvement guidance training suggestions risk reduction actions recommendations for employee group or overall.",
-        "examples": [
-            "how can this BRID improve", "recommend training for risky department",
-            "what should we do to reduce phishing clicks"
-        ],
-        "keywords": [
-            "improve", "improvement", "recommend", "recommendation", "training",
-            "actions", "reduce", "guidance", "what should", "action plan", "coach"
-        ]
-    },
-    "simulation_users": {
-        "description": "Users who clicked reported or took no action in a simulation campaign user list by month year campaign event type.",
-        "examples": [
-            "who clicked in March 2026 simulation", "show trapped users",
-            "users reported in campaign"
-        ],
-        "keywords": [
-            "users who", "who clicked", "who reported", "trapped", "simulation users",
-            "campaign users", "list users", "clicked users", "reported users"
-        ]
-    },
-    "cache_control": {
-        "description": "Cache changing actions refresh clear reload update rebuild reset cache.",
-        "examples": [
-            "refresh cache", "clear cache", "new data added update cache"
-        ],
-        "keywords": [
-            "refresh cache", "clear cache", "reload cache", "update cache",
-            "rebuild cache", "reset cache", "new data added"
-        ]
-    },
-    "cache_status": {
-        "description": "Read cache status statistics loaded refresh time rows campaigns templates departments cities.",
-        "examples": [
-            "cache status", "cache statistics", "cache stats", "cache loaded",
-            "refresh time", "cache rows", "rows loaded"
-        ],
-        "keywords": [
-            "cache status", "cache statistics", "when was cache refreshed", "cache status"
-        ]
-    },
-    "system_info": {
-        "description": "System diagnostics health check database schema columns model features environment configuration.",
-        "examples": [
-            "health check", "show table schema", "feature columns", "environment config"
-        ],
-        "keywords": [
-            "health check", "health", "system info", "schema", "columns", "feature",
-            "features", "environment", "config", "configuration", "diagnostic", "system", "model path"
-        ]
-    }
 }
 
 EXAMPLE_QUESTIONS = [
@@ -182,186 +73,30 @@ st.markdown("""
     --warning: #f59e0b;
     --danger: #ef4444;
 }
-.stApp {
-    background: linear-gradient(135deg, #08111f 0%, #0b1220 40%, #0b1728 100%);
-    color: var(--text);
-}
-.block-container {
-    max-width: 1360px;
-    padding-top: 1.4rem;
-    padding-bottom: 2rem;
-}
-[data-testid="stSidebar"] {
-    background: var(--bg-sidebar);
-    border-right: 1px solid var(--border);
-}
-[data-testid="stSidebar"] .stMarkdown p {
-    color: var(--text);
-}
-.hero-card {
-    background: rgba(15,27,45,.9);
-    border: 1px solid var(--border);
-    border-radius: 20px;
-    padding: 1.15rem 1.25rem;
-    margin-bottom: 1rem;
-    box-shadow: 0 18px 45px rgba(0,0,0,.18);
-}
-.main-title {
-    font-size: 2.05rem;
-    font-weight: 780;
-    letter-spacing: -.04em;
-    color: #f8fafc;
-    margin-bottom: .12rem;
-}
-.sub-title {
-    font-size: .95rem;
-    color: var(--muted);
-}
-.metric-card {
-    background: rgba(17,31,52,.9);
-    border: 1px solid var(--border-soft);
-    border-radius: 16px;
-    padding: .9rem 1rem;
-    min-height: 88px;
-}
-.metric-label {
-    font-size: .78rem;
-    color: var(--muted);
-    margin-bottom: .28rem;
-}
-.metric-value {
-    font-size: 1.05rem;
-    color: #f8fafc;
-    font-weight: 720;
-}
-.metric-caption {
-    font-size: .75rem;
-    color: var(--muted);
-    margin-top: .18rem;
-}
-.user-line {
-    background: rgba(96,165,250,.09);
-    border: 1px solid rgba(96,165,250,.24);
-    border-left: 4px solid var(--blue);
-    border-radius: 16px;
-    padding: .9rem 1rem;
-    margin: .7rem 0;
-}
-.assistant-line {
-    background: rgba(45,212,191,.07);
-    border: 1px solid rgba(45,212,191,.22);
-    border-left: 4px solid var(--accent);
-    border-radius: 16px;
-    padding: .9rem 1rem;
-    margin: .7rem 0;
-}
-.msg-meta {
-    font-size: .78rem;
-    color: var(--muted);
-    margin-bottom: .35rem;
-}
-.badge {
-    display: inline-block;
-    padding: .18rem .52rem;
-    border-radius: 999px;
-    border: 1px solid var(--border-soft);
-    background: #101d31;
-    color: var(--muted);
-    font-size: .73rem;
-    margin-right: .35rem;
-    margin-top: .25rem;
-}
-.badge-ok {
-    border-color: rgba(34,197,94,.35);
-    color: #86efac;
-    background: rgba(34,197,94,.08);
-}
-.badge-error {
-    border-color: rgba(239,68,68,.4);
-    color: #fca5a5;
-    background: rgba(239,68,68,.08);
-}
-.badge-tool {
-    border-color: rgba(45,212,191,.35);
-    color: #99f6e4;
-    background: rgba(45,212,191,.08);
-}
-.badge-route {
-    border-color: rgba(96,165,250,.35);
-    color: #bfdbfe;
-    background: rgba(96,165,250,.08);
-}
-.trace-title {
-    font-size: .95rem;
-    font-weight: 700;
-    color: #f8fafc;
-    margin-top: .7rem;
-    margin-bottom: .25rem;
-}
-.step-card {
-    background: #0b1626;
-    border: 1px solid var(--border-soft);
-    border-radius: 12px;
-    padding: .65rem .8rem;
-    margin-bottom: .48rem;
-}
-.step-main {
-    font-size: .86rem;
-    font-weight: 700;
-    color: #99f6e4;
-}
-.step-detail {
-    font-size: .76rem;
-    color: var(--muted);
-    margin-top: .12rem;
-}
-.clear-box {
-    background: #0b1626;
-    border: 1px solid var(--border-soft);
-    border-radius: 14px;
-    padding: .9rem .95rem;
-    margin: .5rem 0;
-}
-.clear-title {
-    font-size: .88rem;
-    font-weight: 700;
-    color: #f8fafc;
-    margin-bottom: .25rem;
-}
-.clear-small {
-    font-size: .78rem;
-    color: var(--muted);
-}
-.stButton>button {
-    background: #102035;
-    color: #e5edf7;
-    border: 1px solid #2b3b52;
-    border-radius: 12px;
-    font-weight: 650;
-}
-.stButton>button:hover {
-    background: #172a44;
-    border-color: #2dd4bf;
-    color: #fff;
-}
-.stTextInput input, .stTextArea textarea {
-    background: #0f1b2d !important;
-    color: #e5edf7 !important;
-    border: 1px solid #2b3b52 !important;
-    border-radius: 13px !important;
-}
-.stSelectbox div[data-baseweb="select"]>div {
-    background: #0f1b2d !important;
-    border-color: #2b3b52 !important;
-    color: #e5edf7 !important;
-}
-[data-testid="stChatInput"] textarea {
-    background: #0f1b2d !important;
-    border: 1px solid #2b3b52 !important;
-}
-hr {
-    border-color: var(--border);
-}
+.stApp { background: linear-gradient(135deg, #08111f 0%, #0b1220 40%, #0b1728 100%); color: var(--text); }
+.block-container { max-width: 1360px; padding-top: 1.4rem; padding-bottom: 2rem; }
+[data-testid="stSidebar"] { background: var(--bg-sidebar); border-right: 1px solid var(--border); }
+[data-testid="stSidebar"] .stMarkdown p { color: var(--text); }
+.hero-card { background: rgba(15,27,45,.9); border: 1px solid var(--border); border-radius: 20px; padding: 1.15rem 1.25rem; margin-bottom: 1rem; box-shadow: 0 18px 45px rgba(0,0,0,.18); }
+.main-title { font-size: 2.05rem; font-weight: 780; letter-spacing: -.04em; color: #f8fafc; margin-bottom: .12rem; }
+.sub-title { font-size: .95rem; color: var(--muted); }
+.metric-card { background: rgba(17,31,52,.9); border: 1px solid var(--border-soft); border-radius: 16px; padding: .9rem 1rem; min-height: 88px; }
+.metric-label { font-size: .78rem; color: var(--muted); margin-bottom: .28rem; }
+.metric-value { font-size: 1.05rem; color: #f8fafc; font-weight: 720; }
+.metric-caption { font-size: .75rem; color: var(--muted); margin-top: .18rem; }
+.user-line { background: rgba(96,165,250,.09); border: 1px solid rgba(96,165,250,.24); border-left: 4px solid var(--blue); border-radius: 16px; padding: .9rem 1rem; margin: .7rem 0; }
+.assistant-line { background: rgba(45,212,191,.07); border: 1px solid rgba(45,212,191,.22); border-left: 4px solid var(--accent); border-radius: 16px; padding: .9rem 1rem; margin: .7rem 0; }
+.msg-meta { font-size: .78rem; color: var(--muted); margin-bottom: .35rem; }
+.badge { display: inline-block; padding: .18rem .52rem; border-radius: 999px; border: 1px solid var(--border-soft); background: #101d31; color: var(--muted); font-size: .73rem; margin-right: .35rem; margin-top: .25rem; }
+.badge-ok { border-color: rgba(34,197,94,.35); color: #86efac; background: rgba(34,197,94,.08); }
+.badge-error { border-color: rgba(239,68,68,.4); color: #fca5a5; background: rgba(239,68,68,.08); }
+.trace-title { font-size: .95rem; font-weight: 700; color: #f8fafc; margin-top: .7rem; margin-bottom: .25rem; }
+.step-card { background: #0b1626; border: 1px solid var(--border-soft); border-radius: 12px; padding: .65rem .8rem; margin-bottom: .48rem; }
+.step-main { font-size: .86rem; font-weight: 700; color: #99f6e4; }
+.step-detail { font-size: .76rem; color: var(--muted); margin-top: .12rem; }
+.stButton>button { background: #102035; color: #e5edf7; border: 1px solid #2b3b52; border-radius: 12px; font-weight: 650; }
+.stButton>button:hover { background: #172a44; border-color: #2dd4bf; color: #fff; }
+.stTextInput input, .stTextArea textarea { background: #0f1b2d !important; color: #e5edf7 !important; border: 1px solid #2b3b52 !important; border-radius: 13px !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -401,277 +136,28 @@ def add_step(steps: List[Dict[str, Any]], title: str, details: str = "", data: A
     if data is not None:
         print(compact_preview(data), flush=True)
 
-def normalize_text(text: str) -> str:
-    return re.sub(r"[^\w\s-]", "", str(text or "")).strip().lower()
-
-def tokenize(text: str) -> List[str]:
-    return [x for x in re.findall(r"[a-zA-Z0-9_-]+", normalize_text(text)) if len(x) > 0]
-
-def cosine_similarity_tokens(a: str, b: str) -> float:
-    ta, tb = tokenize(a), tokenize(b)
-    if not ta or not tb:
-        return 0.0
-    ca: Dict[str, int] = {}
-    cb: Dict[str, int] = {}
-    for x in ta: ca[x] = ca.get(x, 0) + 1
-    for x in tb: cb[x] = cb.get(x, 0) + 1
-    common = set(ca) & set(cb)
-    dot = sum(ca[x] * cb[x] for x in common)
-    na = math.sqrt(sum(v * v for v in ca.values()))
-    nb = math.sqrt(sum(v * v for v in cb.values()))
-    return dot / max(na * nb, 1e-9)
-
-def keyword_boost(question: str, tool_name: str) -> float:
-    low = normalize_text(question)
-    score = 0.0
-    for kw in TOOL_CATALOG[tool_name].get("keywords", []):
-        if kw in low:
-            score += 0.20
-            if " " + kw + " " in " " + low + " ":
-                score += 0.10
-    return score
-
-def hard_rule_router(question: str) -> Dict[str, Any]:
-    low = normalize_text(question)
-    if any(x in low for x in ["refresh cache", "reload cache", "update cache", "rebuild cache", "new data added"]):
-        return {"selected_tool": "cache_control", "score": 1.0, "reason": "hard_rule_cache_refresh"}
-    if any(x in low for x in ["cache status", "cache stats", "cache statistics", "cache loaded", "when was cache refreshed", "cache rows"]):
-        return {"selected_tool": "cache_status", "score": 1.0, "reason": "hard_rule_cache_status"}
-    if any(x in low for x in ["health check", "system health", "diagnostic"]):
-        return {"selected_tool": "system_info", "score": 1.0, "reason": "hard_rule_system_health"}
-    if any(x in low for x in ["table schema", "columns available", "available columns", "database columns"]):
-        return {"selected_tool": "system_info", "score": 1.0, "reason": "hard_rule_system_schema"}
-    if any(x in low for x in ["feature columns", "model features", "features available"]):
-        return {"selected_tool": "system_info", "score": 1.0, "reason": "hard_rule_system_features"}
-    if any(x in low for x in ["environment", "config", "configuration"]):
-        return {"selected_tool": "system_info", "score": 1.0, "reason": "hard_rule_system_environment"}
-    return {}
-
-def top1_similarity_tool(question: str) -> Dict[str, Any]:
-    hard = hard_rule_router(question)
-    if hard:
-        return {**hard, "source": "hard_rule_router", "ranked_candidates": [hard], "selection": hard}
-    ranked = []
-    for tool, meta in TOOL_CATALOG.items():
-        corpus = " ".join([tool, meta.get("description", ""), " ".join(meta.get("examples", [])), " ".join(meta.get("keywords", []))])
-        cosine = cosine_similarity_tokens(question, corpus)
-        boost = keyword_boost(question, tool)
-        total = cosine + boost
-        ranked.append(({"tool": tool, "label": TOOL_LABELS.get(tool, tool), "cosine_score": round(float(cosine), 4), "keyword_boost": round(float(boost), 4), "final_score": round(float(total), 4)}, total))
-    ranked = sorted(ranked, key=lambda x: x[1], reverse=True)
-    if ranked:
-        top = ranked[0][0]
-        return {"selected_tool": top["tool"], "score": top["final_score"], "source": "top1_cosine_similarity", "ranked_candidates": [x[0] for x in ranked], "selection": top}
-    return {"selected_tool": "run_analytics", "score": 0.0, "source": "top1_cosine_similarity", "ranked_candidates": [], "selection": {}}
-
-def looks_like_brid(token: str) -> bool:
-    token = str(token or "").strip().strip(",.;")
-    if not token or len(token) < 3:
-        return False
-    if re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", token, re.IGNORECASE):
-        return True
-    if "-" in token or "_" in token:
-        return True
-    return bool(re.search(r"\d", token))
-
-
-def extract_brid(text: str) -> str:
-    patterns = [
-        r"\bbrid\s*[:=-]?\s*([a-zA-Z0-9_-]{3,})",
-        r"\buser\s*[:=-]?\s*([a-zA-Z0-9_-]{3,})"
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, text or "", flags=re.IGNORECASE)
-        if match:
-            candidate = match.group(1).strip().strip(",.;")
-            if looks_like_brid(candidate):
-                return candidate
-    return ""
-
-def extract_year(text: str) -> str:
-    match = re.search(r"\b(20\d{2}|19\d{2})\b", text or "")
-    return match.group(1) if match else ""
-
-def extract_month(text: str) -> str:
-    low = normalize_text(text)
-    for key, value in MONTHS.items():
-        if re.search(r"\b" + re.escape(key) + r"\b", low):
-            return value
-    return ""
-
-def extract_limit(text: str, default: int = DEFAULT_LIMIT) -> int:
-    low = normalize_text(text)
-    match = re.search(r"\btop\s*(\d+)\b", low) or re.search(r"\blimit\s*[:=-]?\s*(\d+)\b", low)
-    if match:
-        return max(1, min(int(match.group(1)), 10000))
-    return default
-
-def extract_threshold(text: str) -> float:
-    low = normalize_text(text)
-    match = re.search(r"\bthreshold\s*[:=-]?\s*(0\.\d+|1\.0|\d+)\b", low)
-    if match:
-        return max(0.0, min(float(match.group(1)), 1.0))
-    pct = re.search(r"(\d+)\s*%", low)
-    if pct:
-        return max(0.0, min(float(pct.group(1)) / 100.0, 1.0))
-    return HIGH_RISK_THRESHOLD
-
-def extract_event_type(text: str) -> str:
-    low = normalize_text(text)
-    if "reported" in low or "report" in low:
-        return "reported"
-    if "no action" in low or "no-action" in low or "no_action" in low:
-        return "no action"
-    return "clicked"
-
-def extract_simple_payload(text: str) -> Dict[str, Any]:
-    payload: Dict[str, Any] = {}
-    rules = {
-        "city": [
-            r"\bcity\s*(?:as|s)?[:=-]?\s*([a-zA-Z ]+?)(?=\s+department|\s+dept|\s+subject|\s+template|\s+campaign|\s+event|$)"
-        ],
-        "usertags-Department": [
-            r"\bdepartment\s*(?:as|s)?[:=-]?\s*([a-zA-Z &]+?)(?=\s+city|\s+subject|\s+template|\s+campaign|\s+event|$)",
-            r"\bdept\s*(?:as|s)?[:=-]?\s*([a-zA-Z &]+?)(?=\s+city|\s+subject|\s+template|\s+campaign|\s+event|$)"
-        ],
-        "corporate_grade": [
-            r"\bgrade\s*(?:as|s)?[:=-]?\s*([a-zA-Z0-9-]+)",
-            r"\bdesignation\s*(?:as|s)?[:=-]?\s*([a-zA-Z0-9-]+)"
-        ],
-        "templatesubject": [
-            r"\bsubject\s*(?:as|s)?[:=-]?\s*(.+?)(?=\s+template|\s+campaign|\s+event|$)",
-            r"\btemplate\s*(?:as|s)?[:=-]?\s*(.+?)(?=\s+subject|\s+campaign|\s+event|$)"
-        ],
-        "campaignname": [
-            r"\bcampaign\s*(?:as|s)?[:=-]?\s*(.+?)(?=\s+subject|\s+template|\s+event|$)"
-        ]
-    }
-    for field, patterns in rules.items():
-        for pattern in patterns:
-            match = re.search(pattern, text or "", flags=re.IGNORECASE)
-            if match:
-                value = match.group(1).strip().strip(",.;")
-                if value:
-                    payload[field] = value
-                    break
-    return payload
-
-def infer_analysis_from_question(question: str) -> Tuple[str, List[str]]:
-    filters = []
-    month = extract_month(question)
-    year = extract_year(question)
-    if month and year:
-        filters.append("month_year")
-    elif month:
-        filters.append("month")
-    elif year:
-        filters.append("year")
-    low = normalize_text(question)
-    if any(x in low for x in ["city", "cities"]):
-        return "city_performance", ["city"] + filters
-    if any(x in low for x in ["department", "dept"]):
-        return "department_performance", ["department"] + filters
-    if any(x in low for x in ["designation", "job level"]):
-        return "designation_performance", ["designation"] + filters
-    if "grade" in low:
-        return "grade_performance", ["grade"] + filters
-    if "coo" in low or "area" in low:
-        return "coo_area_performance", ["coo_area"] + filters
-    if "campaign" in low or "simulation" in low:
-        return "campaign_performance", ["campaign"] + filters
-    if "template" in low:
-        return "template_performance", ["template"] + filters
-    if "subject" in low:
-        return "subject_performance", ["subject"] + filters
-    if month and year:
-        return "month_year_trend", ["month_year"]
-    if month:
-        return "monthly_trend", ["month"]
-    if year:
-        return "yearly_trend", ["year"]
-    if "brid" in low or "employee" in low or "user" in low:
-        return "brid_performance", ["brid"]
-    return "overall_analysis", filters
-
-def build_tool_args(tool_name: str, question: str, user_role: str) -> Dict[str, Any]:
-    low = normalize_text(question)
-    brid = extract_brid(question)
-    month = extract_month(question)
-    year = extract_year(question)
-    limit = extract_limit(question)
-    
-    if tool_name == "run_analytics":
-        analysis_type, group_by = infer_analysis_from_question(question)
-        return {"analysis_type": analysis_type, "group_by": group_by, "filters": extract_simple_payload(question), "user_role": user_role, "top_n": DEFAULT_TOP_N}
-    if tool_name == "employee_lookup":
-        if any(x in low for x in ["top risky", "risky employees", "high risk user", "historically risky"]):
-            return {"mode": "top_risky", "limit": limit, "user_role": user_role}
-        if any(x in low for x in ["find employees", "employees in", "employee in"]):
-            payload = extract_simple_payload(question)
-            return {"mode": "find", "city": payload.get("city"), "department": payload.get("usertags-Department"), "limit": limit, "user_role": user_role}
-        return {"mode": "profile", "brid": brid, "limit": limit, "user_role": user_role}
-    if tool_name == "predict_risk":
-        actual_limit = limit if limit != DEFAULT_LIMIT else None
-        if any(x in low for x in ["predicted high risk", "high risk population", "high risk users"]) and not brid:
-            return {"mode": "high_risk_population", "limit": actual_limit, "threshold": extract_threshold(question), "user_role": user_role}
-        if "population" in low and not brid:
-            return {"mode": "recent_population", "limit": actual_limit, "user_role": user_role}
-        if brid:
-            return {"mode": "by_brid", "brid": brid, "user_role": user_role}
-        return {"mode": "from_payload", "payload": extract_simple_payload(question), "user_role": user_role, "argument_quality": "no_llm_rule_extracted"}
-    if tool_name == "recommend_actions":
-        if brid:
-            return {"mode": "employee_improvement", "brid": brid, "user_role": user_role}
-        analysis_type, group_by = infer_analysis_from_question(question)
-        if group_by:
-            return {"mode": "group_recommendations", "analysis_type": analysis_type, "group_by": group_by, "filters": extract_simple_payload(question), "top_n": 5, "user_role": user_role}
-        return {"mode": "overall_recommendations", "filters": extract_simple_payload(question), "top_n": 5, "user_role": user_role}
-    if tool_name == "simulation_users":
-        return {"campaign_month": month or None, "campaign_year": year or None, "campaign_name": None, "event_type": extract_event_type(question), "user_role": user_role, "limit": limit if limit != DEFAULT_LIMIT else 5000}
-    if tool_name == "cache_control":
-        action = "clear" if any(x in low for x in ["clear", "reset", "delete"]) else "refresh"
-        return {"action": action}
-    if tool_name == "cache_status":
-        return {}
-    if tool_name == "system_info":
-        if "schema" in low or "column" in low:
-            return {"mode": "schema"}
-        if "feature" in low or "environment" in low or "config" in low:
-            return {"mode": "environment"}
-        return {"mode": "health"}
-    return {}
-
-def validate_selection(tool_name: str, args: Dict[str, Any]) -> Tuple[bool, str]:
-    if tool_name == "employee_lookup" and args.get("mode") == "profile" and not args.get("brid"):
-        return False, "BRID is required for employee profile lookup. Example: 'show profile for BRID 75b4ae75-b'."
-    if tool_name == "predict_risk" and args.get("mode") == "by_brid" and not args.get("brid"):
-        return False, "BRID is required for BRID prediction. Example: 'predict no action probability for BRID 75b4ae75-b'."
-    if tool_name == "recommend_actions" and args.get("mode") == "employee_improvement" and not args.get("brid"):
-        return False, "BRID is required for employee improvement recommendations. Example: 'how can BRID 75b4ae75-b improve'."
-    if tool_name == "simulation_users" and not args.get("campaign_month") and not args.get("campaign_year") and not args.get("campaign_name"):
-        return False, "Campaign month, year, or campaign name is required for simulation users. Example: 'who clicked in March 2026 simulation'."
-    return True, ""
+def backend_select_tool(question: str, user_role: str, top_k: int = 1) -> Dict[str, Any]:
+    # Strictly delegates to llm_server.py Top 1 Route
+    request = backend_router.SelectToolRequest(question=question, user_role=user_role, top_k=top_k)
+    return clean_json_value(backend_router.select_tool(request))
 
 def select_tool_no_llm(question: str, user_role: str, steps: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
-    selection = top1_similarity_tool(question)
+    selection = backend_select_tool(question, user_role)
     tool_name = selection.get("selected_tool")
-    args = build_tool_args(tool_name, question, user_role)
-    valid, error = validate_selection(tool_name, args)
-    
     result = {
         "selected_tool": tool_name,
-        "selected_label": TOOL_LABELS.get(tool_name, tool_name),
-        "mode": args.get("mode"),
-        "args": args,
-        "validated": valid
+        "selected_label": TOOL_LABELS.get(tool_name, str(tool_name)),
+        "mode": selection.get("mode"),
+        "args": selection.get("args") or {},
+        "validated": bool(selection.get("validated", True))
     }
-    if not valid:
-        result["validation_error"] = error
-    result["score"] = selection.get("score")
+    if selection.get("validation_error"):
+        result["validation_error"] = selection.get("validation_error")
+        
     result["source"] = selection.get("source")
-    result["ranked_candidates"] = selection.get("ranked_candidates")
-    result["routing_type"] = "top_cosine_similarity_no_llm"
-    add_step(steps, "Tool selected using top-1 cosine similarity", f"{tool_name} | score={selection.get('score')} | source={selection.get('source')}", result)
+    result["routing_type"] = "llm_server_delegated_no_llm_answer"
+    
+    add_step(steps, "Tool selected via llm_server.py", f"{tool_name} | source={selection.get('source')}", result)
     return clean_json_value(result)
 
 def safe_json_loads(text: str) -> Dict[str, Any]:
@@ -683,8 +169,8 @@ def safe_json_loads(text: str) -> Dict[str, Any]:
 def execute_tool_direct(tool_name: str, tool_args: Dict[str, Any], steps: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     steps = steps if steps is not None else []
     try:
-        add_step(steps, "Direct execution started", f"Importing {MCP_SERVER_SCRIPT}")
-        import phser as server
+        add_step(steps, "Direct execution started", f"Importing phishing_mcp_server")
+        import phishing_mcp_server as server
         server_map = {
             "run_analytics": server.run_analytics,
             "employee_lookup": server.employee_lookup,
@@ -699,6 +185,7 @@ def execute_tool_direct(tool_name: str, tool_args: Dict[str, Any], steps: Option
             result = {"status": "error", "message": f"Unsupported tool: {tool_name}"}
             add_step(steps, "Unsupported tool", tool_name, result)
             return result
+            
         started = time.time()
         add_step(steps, "Tool execution started", tool_name, tool_args)
         result = server_map[tool_name](**tool_args) or {}
@@ -755,13 +242,8 @@ def execute_selected_tool(tool_name: str, tool_args: Dict[str, Any], steps: Opti
         return execute_tool_mcp_stdio(tool_name, tool_args, steps)
     return execute_tool_direct(tool_name, tool_args, steps)
 
-def percent(value: Any) -> str:
-    try:
-        return f"{round(float(value) * 100, 2)}%"
-    except Exception:
-        return "N/A"
-
 def summarize_deterministic(tool_name: str, tool_args: Dict[str, Any], tool_output: Dict[str, Any]) -> str:
+    # 100% Deterministic: Bypasses LLM, pulls human-readable UI text straight from backend MCP execution
     if isinstance(tool_output, dict) and "ui_summary" in tool_output:
         return tool_output["ui_summary"]
 
@@ -778,7 +260,7 @@ def run_full_pipeline(question: str, user_role: str) -> Dict[str, Any]:
     add_step(steps, "Request received", f"role={user_role}, question='{question}'")
     try:
         selection = select_tool_no_llm(question, user_role, steps)
-        if selection.get("validation_error"):
+        if selection.get("validation_error") and not selection.get("validated"):
             add_step(steps, "Validation failed", selection.get("validation_error"))
             return {
                 "status": "validation_error",
@@ -790,13 +272,17 @@ def run_full_pipeline(question: str, user_role: str) -> Dict[str, Any]:
                 "steps": steps,
                 "latency_ms": round((time.time() - started) * 1000, 2)
             }
+            
         tool_name = selection.get("selected_tool")
         tool_args = selection.get("args") or {}
         tool_output = execute_selected_tool(tool_name, tool_args, steps)
+        
+        # Pull deterministic summary without LLM
         final_answer = summarize_deterministic(tool_name, tool_args, tool_output)
         status = "success" if isinstance(tool_output, dict) and tool_output.get("status") != "error" else "error"
         latency_ms = round((time.time() - started) * 1000, 2)
         add_step(steps, "Pipeline completed", status=status, latency_ms=latency_ms)
+        
         return {
             "status": status,
             "final_answer": final_answer,
@@ -841,7 +327,7 @@ def render_sidebar() -> None:
         st.session_state.show_debug = st.toggle("Show trace below answers", value=st.session_state.show_debug)
         st.markdown("---")
         st.caption("(No LLM mode)")
-        st.caption("Tool selection: top-1 cosine similarity")
+        st.caption("Tool selection: delegated to llm_server.py")
         st.caption("Summary: Deterministic only")
         st.caption(f"Execution mode: {EXECUTION_MODE}")
         st.markdown("---")
@@ -866,10 +352,10 @@ def render_sidebar() -> None:
                 st.rerun()
 
 def render_header() -> None:
-    st.markdown(f"""<div class="hero-card"><div class="main-title">{APP_TITLE}</div><div class="sub-title">Local top-1 cosine routing · Deterministic arguments · Deterministic summaries · No LLM calls</div></div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div class="hero-card"><div class="main-title">{APP_TITLE}</div><div class="sub-title">Selection and argument shaping come from llm_server.py · This UI only renders and executes the chosen tool · No LLM answer generation here</div></div>""", unsafe_allow_html=True)
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        st.markdown(f"""<div class="metric-card"><div class="metric-label">Routing</div><div class="metric-value">Top-1 Cosine</div><div class="metric-caption">Local lexical similarity</div></div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div class="metric-card"><div class="metric-label">Routing</div><div class="metric-value">Delegated</div><div class="metric-caption">llm_server.py Top-1</div></div>""", unsafe_allow_html=True)
     with c2:
         st.markdown(f"""<div class="metric-card"><div class="metric-label">Execution</div><div class="metric-value">{EXECUTION_MODE}</div><div class="metric-caption">MCP/Direct tool layer</div></div>""", unsafe_allow_html=True)
     with c3:
@@ -878,7 +364,7 @@ def render_header() -> None:
         role = st.session_state.user_role
         st.markdown(f"""<div class="metric-card"><div class="metric-label">Access Mode</div><div class="metric-value">{role}</div><div class="metric-caption">Role-aware backend output</div></div>""", unsafe_allow_html=True)
     with st.expander("Current architecture", expanded=False):
-        st.code("phishing_streamlit_ui_noLLM.py -> local top1_similarity_tool -> cosine similarity over tool catalog -> selected tool + deterministic args -> phishing_mcp_server.py -> executes selected MCP/direct tool -> deterministic summary -> no LLM selection -> no LLM generation", language="text")
+        st.code("phishing_streamlit_ui_noLLM.py -> llm_server.py selects one tool + builds args -> phishing_mcp_server.py executes selected MCP/direct tool -> deterministic summary -> no LLM answer generation in this UI", language="text")
 
 def render_clear_tool_output(tool_output: Any) -> None:
     if isinstance(tool_output, list):
@@ -958,24 +444,22 @@ def render_trace(backend: Dict[str, Any], idx) -> None:
     tool_output = backend.get("tool_output") or {}
     tool_meta = (tool_output or {}).get("tool_catalog_entry") or {}
     ui_instruction = (tool_output or {}).get("ui_instruction") or (tool_output or {}).get("trace_instruction")
-    st.markdown(f"""<div class="answer-toolbar"><span class="badge {badge_class}">Tool: {html.escape(str(selected_tool or "-"))}</span><span class="badge {badge_class}">Routing: Top-1 cosine</span><span class="badge {badge_class}">Score: {html.escape(str(backend.get("score") or "-"))}</span><span class="badge">Latency: {html.escape(str(latency_ms or "-"))} ms</span><span class="badge {badge_class}">Status: {html.escape(str(status))}</span></div>""", unsafe_allow_html=True)
+    
+    st.markdown(f"""<div class="answer-toolbar"><span class="badge {badge_class}">Tool: {html.escape(str(selected_tool or "-"))}</span><span class="badge {badge_class}">Routing: Delegated Top-1</span><span class="badge">Latency: {html.escape(str(latency_ms or "-"))} ms</span><span class="badge {badge_class}">Status: {html.escape(str(status))}</span></div>""", unsafe_allow_html=True)
+    
     if tool_meta:
         st.caption(f"Tool contract: {tool_meta.get('description', '')}")
     if ui_instruction:
         st.info(ui_instruction)
+        
     with st.expander("Trace", expanded=False):
         tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Tool Selection", "Tool Arguments", "Tool Contract", "Execution Steps", "Raw JSON", "Download"])
         with tab1:
-            st.markdown('<div class="trace-title">Tool Selection - Top 1 Cosine Similarity</div>', unsafe_allow_html=True)
-            c1, c2, c3 = st.columns(3)
+            st.markdown('<div class="trace-title">Tool Selection - llm_server.py</div>', unsafe_allow_html=True)
+            c1, c2 = st.columns(2)
             c1.metric("Selected Tool", str(backend.get("selected_tool") or "-"))
-            c2.metric("Score", str(backend.get("score") or "-"))
             selection = backend.get("selection") or {}
-            c3.metric("Mode", str(selection.get("mode") or "-"))
-            ranked = backend.get("ranked_candidates")
-            if ranked:
-                st.markdown("#### Ranked candidates")
-                st.dataframe(ranked, width="stretch")
+            c2.metric("Mode", str(selection.get("mode") or "-"))
             st.markdown("#### Selection JSON")
             st.json(selection)
         with tab2:
@@ -1032,7 +516,7 @@ def handle_question(question: str) -> None:
     try:
         with st.status("Running phishing analytics workflow...", expanded=False) as status:
             result = run_full_pipeline(question, st.session_state.user_role)
-            if result.get("status") == "success":
+            if result.get("status") in ["success", "validation_error"]:
                 status.update(label="Workflow completed", state="complete", expanded=False)
             else:
                 status.update(label="Workflow completed with issue", state="error", expanded=False)
@@ -1059,5 +543,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
